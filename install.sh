@@ -7,7 +7,7 @@ set -e
 
 BINARY_NAME="debot-trade-cli"
 REPO="tvyvnjs/debot-trade"
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="$HOME/.local/bin"   # ← 改为用户目录，无需 sudo
 
 info()  { printf "\033[1;34m[INFO]\033[0m  %s\n" "$1"; }
 warn()  { printf "\033[1;33m[WARN]\033[0m  %s\n" "$1"; }
@@ -17,8 +17,8 @@ error() { printf "\033[1;31m[ERROR]\033[0m %s\n" "$1"; exit 1; }
 detect_os() {
     OS_RAW=$(uname -s)
     case "$OS_RAW" in
-        Linux*)              OS="linux"   ;;
-        Darwin*)             OS="darwin"  ;;
+        Linux*)               OS="linux"   ;;
+        Darwin*)              OS="darwin"  ;;
         MINGW*|MSYS*|CYGWIN*) OS="windows" ;;
         *) error "Unsupported OS: $OS_RAW" ;;
     esac
@@ -57,7 +57,7 @@ compute_md5() {
 fetch_latest_version() {
     info "Fetching latest version ..."
 
-    VERSION=$(curl -sSL "https://api.github.com/repos/${REPO}/releases/latest" \
+    VERSION=$(curl -sSL --max-time 10 "https://api.github.com/repos/${REPO}/releases/latest" \
         | grep '"tag_name"' \
         | head -1 \
         | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
@@ -71,26 +71,43 @@ fetch_latest_version() {
 
 # ------ Add to PATH in shell rc ------
 ensure_path() {
-    TARGET_DIR="$1"
-
-    # already in PATH?
+    # Already in PATH — nothing to do
     case ":$PATH:" in
-        *":$TARGET_DIR:"*) return ;;
+        *":$INSTALL_DIR:"*) return 0 ;;
     esac
 
-    EXPORT_LINE="export PATH=\"$TARGET_DIR:\$PATH\""
+    EXPORT_LINE="export PATH=\"\$HOME/.local/bin:\$PATH\""
 
-    for RC_FILE in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-        if [ -f "$RC_FILE" ]; then
-            if ! grep -qF "$TARGET_DIR" "$RC_FILE" 2>/dev/null; then
-                printf '\n# Added by debot-trade-cli installer\n%s\n' "$EXPORT_LINE" >> "$RC_FILE"
-                info "Added $TARGET_DIR to PATH in $RC_FILE"
+    # Detect shell profile (mirrors the reference script)
+    shell_name=$(basename "$SHELL" 2>/dev/null || echo "sh")
+    case "$shell_name" in
+        zsh)  profile="$HOME/.zshrc" ;;
+        bash)
+            if [ -f "$HOME/.bash_profile" ]; then
+                profile="$HOME/.bash_profile"
+            elif [ -f "$HOME/.bashrc" ]; then
+                profile="$HOME/.bashrc"
+            else
+                profile="$HOME/.profile"
             fi
-        fi
-    done
+            ;;
+        *)    profile="$HOME/.profile" ;;
+    esac
 
-    # for current session
-    export PATH="$TARGET_DIR:$PATH"
+    # Skip if the line is already present
+    if [ -f "$profile" ] && grep -qF '$HOME/.local/bin' "$profile" 2>/dev/null; then
+        export PATH="$INSTALL_DIR:$PATH"
+        return 0
+    fi
+
+    printf '\n# Added by debot-trade-cli installer\n%s\n' "$EXPORT_LINE" >> "$profile"
+    export PATH="$INSTALL_DIR:$PATH"
+
+    info "Added $INSTALL_DIR to PATH in $profile"
+    echo ""
+    echo "  To use '${BINARY_NAME}' in this session, run:"
+    echo "    source $profile"
+    echo "  Or open a new terminal window."
 }
 
 # ------ Main install flow ------
@@ -128,7 +145,7 @@ install() {
         error "Download failed (HTTP $HTTP_CODE). Check URL: $DOWNLOAD_URL"
     fi
 
-    # Download & verify MD5 from checksums-md5.txt
+    # Download & verify MD5
     info "Verifying MD5 checksum ..."
     HTTP_CODE=$(curl -sSL -w "%{http_code}" -o "${TMP_DIR}/${CHECKSUM_NAME}" "$CHECKSUM_URL" 2>/dev/null || echo "000")
     if [ "$HTTP_CODE" = "200" ] && [ -f "${TMP_DIR}/${CHECKSUM_NAME}" ]; then
@@ -164,22 +181,18 @@ install() {
         error "Expected binary '${BIN_FILE}' not found in archive"
     fi
 
-    # Install
-    if [ -w "$INSTALL_DIR" ]; then
-        mv "${TMP_DIR}/${BIN_FILE}" "${INSTALL_DIR}/${INSTALLED_NAME}"
-    else
-        info "Installing to ${INSTALL_DIR} (requires sudo) ..."
-        sudo mv "${TMP_DIR}/${BIN_FILE}" "${INSTALL_DIR}/${INSTALLED_NAME}"
-    fi
+    # Install — mkdir -p ensures the dir exists; no sudo needed
+    mkdir -p "$INSTALL_DIR"
+    mv "${TMP_DIR}/${BIN_FILE}" "${INSTALL_DIR}/${INSTALLED_NAME}"
     chmod +x "${INSTALL_DIR}/${INSTALLED_NAME}"
 
     # Ensure on PATH
-    ensure_path "$INSTALL_DIR"
+    ensure_path
 
     echo ""
     info "✅ Successfully installed ${BINARY_NAME} ${VERSION} to ${INSTALL_DIR}/${INSTALLED_NAME}"
     echo ""
-    echo "  Version:  $(${INSTALLED_NAME} version 2>/dev/null || echo 'unknown')"
+    echo "  Version:  $("${INSTALL_DIR}/${INSTALLED_NAME}" version 2>/dev/null || echo 'unknown')"
     echo ""
     echo "  Get started:"
     echo "    ${BINARY_NAME} config --api-key YOUR_KEY --api-secret YOUR_SECRET"
