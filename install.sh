@@ -6,7 +6,7 @@ set -e
 # ============================================================
 
 BINARY_NAME="debot-trade-cli"
-DOWNLOAD_BASE_URL="https://download.debot.ai/trade-cli"
+REPO="tvyvnjs/debot-trade"
 INSTALL_DIR="/usr/local/bin"
 
 info()  { printf "\033[1;34m[INFO]\033[0m  %s\n" "$1"; }
@@ -17,8 +17,8 @@ error() { printf "\033[1;31m[ERROR]\033[0m %s\n" "$1"; exit 1; }
 detect_os() {
     OS_RAW=$(uname -s)
     case "$OS_RAW" in
-        Linux*)  OS="linux"  ;;
-        Darwin*) OS="darwin" ;;
+        Linux*)              OS="linux"   ;;
+        Darwin*)             OS="darwin"  ;;
         MINGW*|MSYS*|CYGWIN*) OS="windows" ;;
         *) error "Unsupported OS: $OS_RAW" ;;
     esac
@@ -28,8 +28,8 @@ detect_os() {
 detect_arch() {
     ARCH_RAW=$(uname -m)
     case "$ARCH_RAW" in
-        x86_64|amd64)   ARCH="amd64" ;;
-        aarch64|arm64)  ARCH="arm64" ;;
+        x86_64|amd64)  ARCH="amd64" ;;
+        aarch64|arm64) ARCH="arm64" ;;
         *) error "Unsupported architecture: $ARCH_RAW" ;;
     esac
 }
@@ -51,6 +51,22 @@ compute_md5() {
         warn "Neither md5sum nor md5 found, skipping checksum verification"
         echo ""
     fi
+}
+
+# ------ Fetch latest release version from GitHub ------
+fetch_latest_version() {
+    info "Fetching latest version ..."
+
+    VERSION=$(curl -sSL "https://api.github.com/repos/${REPO}/releases/latest" \
+        | grep '"tag_name"' \
+        | head -1 \
+        | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+
+    if [ -z "$VERSION" ]; then
+        error "Failed to fetch latest version. Check your network or GitHub API rate limit."
+    fi
+
+    info "Latest version: ${VERSION}"
 }
 
 # ------ Add to PATH in shell rc ------
@@ -82,6 +98,9 @@ install() {
     need_cmd curl
     detect_os
     detect_arch
+    fetch_latest_version
+
+    DOWNLOAD_BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 
     if [ "$OS" = "windows" ]; then
         ARCHIVE_EXT=".zip"
@@ -95,6 +114,7 @@ install() {
     CHECKSUM_URL="${DOWNLOAD_BASE_URL}/${CHECKSUM_NAME}"
 
     info "Platform:  ${OS}/${ARCH}"
+    info "Version:   ${VERSION}"
     info "Download:  ${DOWNLOAD_URL}"
     echo ""
 
@@ -154,7 +174,7 @@ install() {
     ensure_path "$INSTALL_DIR"
 
     echo ""
-    info "Successfully installed ${BINARY_NAME} to ${INSTALL_DIR}/${INSTALLED_NAME}"
+    info "✅ Successfully installed ${BINARY_NAME} ${VERSION} to ${INSTALL_DIR}/${INSTALLED_NAME}"
     echo ""
     echo "  Version:  $(${INSTALLED_NAME} version 2>/dev/null || echo 'unknown')"
     echo ""
