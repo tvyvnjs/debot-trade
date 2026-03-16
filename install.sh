@@ -109,7 +109,7 @@ install() {
     fi
 
     ARCHIVE_NAME="${BINARY_NAME}-${OS}-${ARCH}${ARCHIVE_EXT}"
-    CHECKSUM_NAME="${ARCHIVE_NAME}.md5"
+    CHECKSUM_NAME="checksums-md5.txt"
     DOWNLOAD_URL="${DOWNLOAD_BASE_URL}/${ARCHIVE_NAME}"
     CHECKSUM_URL="${DOWNLOAD_BASE_URL}/${CHECKSUM_NAME}"
 
@@ -128,16 +128,19 @@ install() {
         error "Download failed (HTTP $HTTP_CODE). Check URL: $DOWNLOAD_URL"
     fi
 
-    # Download & verify MD5
+    # Download & verify MD5 from checksums-md5.txt
     info "Verifying MD5 checksum ..."
     HTTP_CODE=$(curl -sSL -w "%{http_code}" -o "${TMP_DIR}/${CHECKSUM_NAME}" "$CHECKSUM_URL" 2>/dev/null || echo "000")
     if [ "$HTTP_CODE" = "200" ] && [ -f "${TMP_DIR}/${CHECKSUM_NAME}" ]; then
-        EXPECTED_MD5=$(awk '{print $1}' "${TMP_DIR}/${CHECKSUM_NAME}")
+        EXPECTED_MD5=$(awk -v f="${ARCHIVE_NAME}" '$2==f {print $1}' "${TMP_DIR}/${CHECKSUM_NAME}")
+        if [ -z "$EXPECTED_MD5" ]; then
+            warn "No MD5 entry found for ${ARCHIVE_NAME} in ${CHECKSUM_NAME}, skipping verification"
+        fi
         ACTUAL_MD5=$(compute_md5 "${TMP_DIR}/${ARCHIVE_NAME}")
-        if [ -n "$ACTUAL_MD5" ] && [ "$ACTUAL_MD5" != "$EXPECTED_MD5" ]; then
+        if [ -n "$ACTUAL_MD5" ] && [ -n "$EXPECTED_MD5" ] && [ "$ACTUAL_MD5" != "$EXPECTED_MD5" ]; then
             error "MD5 mismatch! Expected: $EXPECTED_MD5  Got: $ACTUAL_MD5"
         fi
-        if [ -n "$ACTUAL_MD5" ]; then
+        if [ -n "$ACTUAL_MD5" ] && [ -n "$EXPECTED_MD5" ]; then
             info "MD5 OK: $ACTUAL_MD5"
         fi
     else
